@@ -1,2 +1,1 @@
-# OpenRLHF_Learning
-学习OpenRLHF微调
+学习Qwen2.5的复现
