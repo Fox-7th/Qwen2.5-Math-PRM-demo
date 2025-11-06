@@ -1,0 +1,9 @@
+prompt数据集：MATH
+2张 24G以上显卡
+带训练的Qwen2.5-Math-Instruct
+
+
+
+
+
+
