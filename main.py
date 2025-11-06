@@ -50,7 +50,7 @@ def split_steps(input_str):
     steps = [step.strip() for step in steps if step]
     return steps
 
-def mock_policy_model_generate(problem_test,
+def mock_policy_model_generate(problem_text,
                                num_solutions = 6 ) -> List[List[str]] :
     
     solutions = []
@@ -66,12 +66,8 @@ def mock_policy_model_generate(problem_test,
         
         # solution split into List[str]
         steps = split_steps(solution)
-        # List[List[str]]
+        # List[List[str]], 8 solution(list of steps) in 1 list
         solutions.append(steps) 
-
-
-
-
 
 
 
@@ -81,10 +77,28 @@ def mock_policy_model_generate(problem_test,
 如果在某个推理步骤之后，模型多数时候都能生成正确的最终答案，则说明这个步骤是「潜在正确的」。
 """
 
+def evaluate_consistency(result):
+    res_arr = np.array(result) # list -> array
+    mean_res = np.mean(res_arr)
+    std_res = np.std(res_arr)
+    variacne = np.var(res_arr)
+    if std_res < 0.1 * mean_res:
+        return 1
+    return 0
+
+
 
 
 def mock_mc_estimation_constrained(question,
                                    solution_steps):
+    """
+    once for one solution
+    comulative steps as prompt, as model continue to generate for 8 times
+    then see whether 8 results are consistent(答案相近)
+    return 0 or 1 for each step, 
+    so result is like [1,1,1,0,1]
+    """
+
     num_simulations = 8
     accumulated_steps = ""
     result = []
@@ -98,8 +112,6 @@ def mock_mc_estimation_constrained(question,
         {accumulated_steps} \n
         你的解答：  
     """
-
-    question = ""
 
 
     for i, step in enumerate(solution_steps):
@@ -148,16 +160,120 @@ def mock_mc_estimation_constrained(question,
 
 
     
+
+def mc_labeling_for_problem(problem_text) -> List[Dict]:
+    """
+    [
+        {
+            "problem": problem_text,
+            "steps": [
+                {"text": "Step_1....", "mc_labels": 1},
+                {"text": "Step_2....", "mc_labels": 0},
+                ...
+            ]
+        },
+
+        
+        .....
+
+        
+    ]
+    
+    """
+    # 将存入的 一个 问题，解答6次，各次按照step split，得到List[List[str]]
+    solutions = mock_policy_model_generate(problem_text=problem_text,
+                                           num_solutions=6)
+    print(solutions)
+
+    result = []
+    # 一个solution，包含多个step的str的list。每次处理一个solution
+    for solution in solutions:
+        mc_labels = mock_mc_estimation_constrained(problem_text, solution)
+        step_data = []
+        # here, solution as a list of steps, mc as steps' labels
+        # same numbers of elements of 2 lists
+        for step_text, label in zip(solution, mc_labels):
+            step_data.append({
+                "text": step_text,
+                "mc_label": label
+            })
+        # after append of each step in one solution, append
+        result.append(
+            {
+            "problem": problem_text,
+            "steps": step_data
+            }
+        )
+    return result
     
 
 
 
 
 
+eval_prompt = """
+你善于检查逻辑和运算，我讲给你一个题目和一个 解题步骤(也就是一连串步骤中的一个步骤)。你需要检查根据题目检查这个解题步骤。
+如果解题步骤可能有问题，就给出改正建议，并且返回0.如果没问题就返回1
+具体格式为："改正建议：...，正确性：..."。这里的正确性就是0或者1。
+
+问题是： {question}
+解题步骤是： {solution_steps}
+"""
 
 
+#####################LLM judges each step alone############
+
+def mock_llm_judge(question: str, step_text: str) -> int:
+    """
+    llm as a judge
+    
+    """
+    prompt = eval_prompt(question, step_text)
+    response = get_message(eval_prompt)
+    right_or_not = response.split("正确性")[-1] # 0 or 1
+    return right_or_not
 
 
+# 有点怪，对solutioin中 每一个step 单独进行 判断是否合理，
+# 没有前边步骤，没有后边步骤，只对 中间 一个孤零零的步骤 进行判断
+
+def llm_juedge_labeling(question_data: List[Dict]):
+    """
+    [
+        {
+            "problem": problem_text,
+            "steps": [
+                {"text": "Step_1....", "mc_labels": 1, "judge_label": 1},
+                {"text": "Step_2....", "mc_labels": 0, "judge_label": 0},
+                ...
+            ]
+        },
+
+        
+        .....
+
+        
+    ]
+    
+    """
+
+
+    # 对于每个question 的solution 的dict
+
+    output = []
+    for solution_dict in question_data:
+        new_steps = []
+        for step_info in solution_dict["steps"]:
+            step_text = step_info["text"]
+            llm_juedge_res = mock_llm_judge(solution_dict["problem"], step_text)
+            step_info["judge_label"] = llm_juedge_res
+            new_steps.append(step_info)
+        # 直接进行整体覆盖
+        solution_dict["steps"] = new_steps
+
+        # 不在原来的dict上修改，而是重新创造一个，修改，复制
+        output.append(solution_dict)
+    return output
 
 
 
