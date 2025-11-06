@@ -209,8 +209,6 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
 
 
 
-
-
 eval_prompt = """
 你善于检查逻辑和运算，我讲给你一个题目和一个 解题步骤(也就是一连串步骤中的一个步骤)。你需要检查根据题目检查这个解题步骤。
 如果解题步骤可能有问题，就给出改正建议，并且返回0.如果没问题就返回1
@@ -221,7 +219,7 @@ eval_prompt = """
 """
 
 
-#####################LLM judges each step alone############
+#####################LLM judges each step alone#######################
 
 def mock_llm_judge(question: str, step_text: str) -> int:
     """
@@ -252,7 +250,7 @@ def llm_juedge_labeling(question_data: List[Dict]):
         
         .....
 
-        
+    
     ]
     
     """
@@ -274,6 +272,50 @@ def llm_juedge_labeling(question_data: List[Dict]):
         # 不在原来的dict上修改，而是重新创造一个，修改，复制
         output.append(solution_dict)
     return output
+
+
+# double check and only keep double 1s
+def consensus_fultering(data: List[Dict]) -> List[Dict]:
+
+    filtered_data = []
+    for sol_dict in data:
+        correct_steps = []
+        for step_info in sol_dict["steps"]:
+            judge_label_val = step_info.get("judge_label", 0)
+            mc_label_val = step_info.get("mc_label", 0)
+            
+            final_label = (judge_label_val and mc_label_val)
+
+            correct_steps.append(
+                {
+                    "text": step_info["text"],
+                    "final_label": 1
+                }
+            )
+        filtered_data.append(
+            {
+                "problem": sol_dict["problem"],
+                "steps": correct_steps
+            }
+        )
+    return filtered_data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
