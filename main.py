@@ -35,7 +35,7 @@ def get_message(prompt, temperature):
         print(f"wrong info: {e}")
 
 
-# split answers with "steps":: into parts
+
 def split_steps(input_str):
     steps = re.split(r'(?=step \d', input_str)
     steps = [step.strip() for step in steps if step]

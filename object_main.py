@@ -145,7 +145,7 @@ class MonteCarloEvaluator:
                 
                 # i=1就是给了1步step后，sim_num=1进行第1次仿真
                 # model续写，返回 回答
-                full_solution = self.llm_reponder(current_prompt_text)   
+                full_solution = self.llm_responder(current_prompt_text)   
 
 
                 # re.DOTALL: 它让 . 可以匹配 包括换行符在内的所有字符。 默认情况下 . 不会匹配 \n
@@ -190,13 +190,14 @@ class MonteCarloEvaluator:
             ...
         ]
         """
-        all_solutions = generator.generate_solution_steps(question) #默认生成6个
+        all_solutions = generator.generate_solution_steps(question) #1个问题 默认生成6个solution
         labeled_solutions = []
 
-        for steps in all_solutions:
-            mc_labels = self.evaluate_step_consistency(steps, question)
+        for solution_steps in all_solutions:
+            # 生成每一步的consistency 列表
+            mc_labels = self.evaluate_step_consistency(solution_steps, question)
             step_dicts = []
-            for step_text, label in zip(steps, mc_labels):
+            for step_text, label in zip(solution_steps, mc_labels):
                 step_dicts.append({
                     "text": step_text,
                     "mc_label": int(label)
@@ -230,13 +231,50 @@ class LLM_StepJudge:
                    question,
                    solution_steps):
         step_eval_list = []
-        for step in solution_steps:
-            prompt = self.eval_prompt.format(question = question, step = step)
-            response = self.llm.get_message(prompt)
+        for solution_steps in solution_steps:
+            prompt = self.eval_prompt.format(question = question, solution_steps = solution_steps)
+            response = self.llm(prompt)
             right_or_not = response.split("正确性")[-1] # 0 or 1
             step_eval_list.append(right_or_not)
 
         return step_eval_list
+
+    def label_problem(self, mc_data: List[Dict]) -> List[Dict]:
+        """
+        注意：这里直接引入了 mc_data的字典
+        输入：MC 数据结构（含 problem + steps）
+        输出：每个 step 加上 judge_label
+        [
+            {
+                "problem": question,
+                "steps": [{"text": ..., "j_label": ...}, ...]
+            },
+            ...
+        ]
+
+        """
+        judged_data = []
+
+        for item in mc_data:
+            question = item["problem"]
+            # 提取所有的步的text
+            step_texts = [s["text"] for s in item["steps"]]
+            judge_labels = self.judge_step(question, step_texts)
+
+            new_steps = []
+            for step, j_label in zip(item["steps"], judge_labels):
+                new_steps.append({
+                    "text": step["text"],
+                    "judge_label": int(j_label)
+                })
+
+            judged_data.append({
+                "problem": question,
+                "steps": new_steps
+            })
+
+        return judged_data
+        # 注意这是新表，不是在原来的表上加的
 
 
 def merge_mc_and_judge(mc_data: List[Dict], judge_data: List[Dict]) -> List[Dict]:
@@ -262,45 +300,9 @@ def merge_mc_and_judge(mc_data: List[Dict], judge_data: List[Dict]) -> List[Dict
     return merged_data
 
 
-def mc_labeling_for_problem(problem_text, consistency_evaluater) -> List[Dict]:
-    """
-    [
-        {
-            "problem": problem_text,
-            "steps": [
-                {"text": "Step_1....", "mc_labels": 1},
-                {"text": "Step_2....", "mc_labels": 0},
-                ...
-            ]
-        },
 
-        .....
 
-    ]
-    
-    """
-    # 将存入的 一个 问题，解答6次，各次按照step split，得到List[List[str]]
-    solutions = consistency_evaluater.mock_policy_model_generate(problem_text=problem_text,
-                                           num_solutions=6)
-    print(solutions)
 
-    result = []
-    # 一个solution，包含多个step的str的list。每次处理一个solution
-    for solution in solutions:
-        mc_labels = consistency_evaluater.mock_mc_estimation_constrained(problem_text, solution)
-        step_data = []
-        # here, solution as a list of steps, mc as steps' labels
-        # same numbers of elements of 2 lists
-        for step_text, label in zip(solution, mc_labels):
-            step_data.append({
-                "text": step_text,
-                "mc_label": label
-            })
-        # after append of each step in one solution, append
-        result.append(
-            {
-            "problem": problem_text,
-            "steps": step_data
-            }
-        )
-    return result
+
+
+
