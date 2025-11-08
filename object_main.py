@@ -28,15 +28,15 @@ class LLM_Responser:
     
     def __call__(self, prompt: str, temperature = 0.7) -> str:
         try:
-            completion = self.client.chat.completion.create(
+            completion = self.client.chat.completions.create(
                 model = self.model_name,
                 messages = [
                     {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", " content": prompt},
+                    {"role": "user", "content": prompt},
                 ],
                 temperature = temperature
             )
-            return completion.choice[0].message.content
+            return completion.choices[0].message.content
             
         except Exception as e:
             print(f"Error info: {e}")
@@ -107,7 +107,7 @@ class MonteCarloEvaluator:
         res_arr = np.array(result) # list -> array
         mean_res = np.mean(res_arr)
         std_res = np.std(res_arr)
-        variacne = np.var(res_arr)
+        # variance = np.var(res_arr)
         if std_res < 0.1 * mean_res:
             return 1
         return 0
@@ -153,7 +153,7 @@ class MonteCarloEvaluator:
                 # 有答案，就保存
                 if match:
                     # group(1) 抽取 第1个括号中的匹配对象；假如是0，那就是整个匹配，包括字符串 
-                    gererated_ans_str = match.group(1).strip()
+                    generated_ans_str = match.group(1).strip()
                     try:
                         ans_val = float(gererated_ans_str)
                         answer_lists.append(ans_val)
@@ -218,21 +218,21 @@ class MonteCarloEvaluator:
 class LLM_StepJudge:
     def __init__(self, 
                 llm, 
-                question,
+                # question,
                 eval_prompt = eval_prompt, 
                 # solution_steps
                 ):
         self.llm = llm
         self.eval_prompt = eval_prompt
-        self.question = question
+        # self.question = question
         # self.solution_steps = solution_steps
 
     def judge_step(self, 
                    question,
                    solution_steps):
         step_eval_list = []
-        for solution_steps in solution_steps:
-            prompt = self.eval_prompt.format(question = question, solution_steps = solution_steps)
+        for step in solution_steps:
+            prompt = self.eval_prompt.format(question = question, solution_steps = step)
             response = self.llm(prompt)
             right_or_not = response.split("正确性")[-1] # 0 or 1
             step_eval_list.append(right_or_not)
@@ -276,33 +276,201 @@ class LLM_StepJudge:
         return judged_data
         # 注意这是新表，不是在原来的表上加的
 
+# gpt
+class LabelMerger:
+    def merge(self, mc_data: List[Dict], judge_data: List[Dict]) -> List[Dict]:
+        merged_data = []
 
-def merge_mc_and_judge(mc_data: List[Dict], judge_data: List[Dict]) -> List[Dict]:
-    merged_data = []
+        for mc_item, judge_item in zip(mc_data, judge_data):
+            assert mc_item["problem"] == judge_item["problem"], "不匹配的问题！"
+            merged_steps = []
 
-    for mc_item, judge_item in zip(mc_data, judge_data):
-        assert mc_item["problem"] == judge_item["problem"], "不匹配的问题！"
-        merged_steps = []
+            for mc_step, judge_step in zip(mc_item["steps"], judge_item["steps"]):
+                assert mc_step["text"] == judge_step["text"], "不匹配的 step！"
+                merged_steps.append({
+                    "text": mc_step["text"],
+                    "mc_label": int(mc_step["mc_label"]),
+                    "judge_label": int(judge_step["judge_label"])
+                })
 
-        for mc_step, judge_step in zip(mc_item["steps"], judge_item["steps"]):
-            assert mc_step["text"] == judge_step["text"], "不匹配的 step！"
-            merged_steps.append({
-                "text": mc_step["text"],
-                "mc_label": int(mc_step["mc_label"]),
-                "judge_label": int(judge_step["judge_label"])
+            merged_data.append({
+                "problem": mc_item["problem"],
+                "steps": merged_steps
             })
 
-        merged_data.append({
-            "problem": mc_item["problem"],
-            "steps": merged_steps
-        })
+        return merged_data
 
-    return merged_data
+    def consensus_filter(self, merged_data: List[Dict]) -> List[Dict]:
+        filtered_data = []
+
+        for sol_dict in merged_data:
+            correct_steps = []
+            for step_info in sol_dict["steps"]:
+                final_label = int(step_info["mc_label"] and step_info["judge_label"])
+                correct_steps.append({
+                    "text": step_info["text"],
+                    "final_label": final_label
+                })
+            filtered_data.append({
+                "problem": sol_dict["problem"],
+                "steps": correct_steps
+            })
+        return filtered_data
 
 
 
+class SimplePRM(nn.Module):
+    def __init__(self, input_dim=768):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class PRMDataset(Dataset):
+    def __init__(self, data: List[Dict], tokenizer):
+        self.samples = []
+        for item in data:
+            for step in item["steps"]:
+                text = step["text"]
+                label = step["final_label"]
+
+                # 要改，要添加合成embedding的方式，而不是仅仅是token_id
+                emb = tokenizer([text], return_tensors="pt")["input_ids"].float().mean(dim=1).squeeze(0)
+                self.samples.append((emb, torch.tensor(label, dtype=torch.float32)))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        return self.samples[idx]
 
 
 
+class PRMTrainer:
+    def __init__(self, tokenizer, model=None):
+        self.tokenizer = tokenizer
+        self.model = model if model else SimplePRM(input_dim=768)
+        # 可根据 tokenizer 输出维度设定
 
+    def build_dataset(self, filtered_data: List[Dict]) -> Dataset:
+        return PRMDataset(filtered_data, self.tokenizer)
+
+    def train(self, dataset: Dataset, epochs=3, batch_size=8):
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=1e-5)
+
+        self.model.train()
+        for epoch in range(epochs):
+            total_loss = 0.0
+            for emb, label in dataloader:
+                optimizer.zero_grad()
+                scores = self.model(emb.unsqueeze(0)).item()
+                label = label.float().unsqueeze(1)
+                loss = criterion(scores, label)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+            avg_loss = total_loss / len(dataloader)
+            print(f"[PRM] Epoch {epoch+1}, Loss = {avg_loss:.4f}")
+
+    def evaluate_best_of_n(self, question: str, generator: Answer_Generator_Step_Splitter, n=8):
+        best_score = -1.0
+        best_solution = None
+
+        solutions = generator.generate_solution_steps(question)
+
+        for solution in solutions:
+            step_embeddings = [self.tokenizer([s]) for s in solution]
+            step_scores = []
+
+            for emb in step_embeddings:
+                emb = emb.unsqueeze(0)  # [1, D]
+                with torch.no_grad():
+                    score = self.model(emb)
+                    step_scores.append(score.item())
+
+            product_score = 1.0
+            for score in step_scores:
+                product_score *= score
+
+            if product_score > best_score:
+                best_score = product_score
+                best_solution = solution
+
+        print(f"[Best-of-{n}] Score: {best_score:.4f}")
+        return best_solution
+
+    def evaluate_processbench_style(self, steps: List[str]) -> int:
+        for idx, step_text in enumerate(steps):
+            emb = self.tokenizer([step_text])['input_ids']
+            with torch.no_grad():
+                score = self.model(emb).item()
+            if score < 0.5:
+                return idx
+        return -1
+
+
+
+class ReasoningEvaluator:
+    def __init__(self, llm_responder, tokenizer):
+        self.generator = Answer_Generator_Step_Splitter(llm_responder)
+        self.mc_evaluator = MonteCarloEvaluator(llm_responder)
+        self.llm_judge = LLM_StepJudge(llm_responder, eval_prompt=eval_prompt)
+        self.merger = LabelMerger()
+        self.tokenizer = tokenizer
+        self.prm_trainer = PRMTrainer(tokenizer)
+
+    def run_on_problem(self, question: str):
+        # Step 1: Generate and label with MC
+        mc_data = self.mc_evaluator.label_problem(question, self.generator)
+
+        # Step 2: LLM judge
+        judge_data = self.llm_judge.label_problem(mc_data)
+
+        # Step 3: Merge
+        merged = self.merger.merge(mc_data, judge_data)
+
+        # Step 4: Consensus filter
+        filtered = self.merger.consensus_filter(merged)
+
+        # Step 5: Train PRM
+        print("[INFO] Start training PRM...")
+        dataset = self.prm_trainer.build_dataset(filtered)
+        self.prm_trainer.train(dataset)
+
+        # Step 6: Evaluation
+        print("\n=== Best-of-N Evaluation ===")
+        self.prm_trainer.evaluate_best_of_n(question, self.generator)
+
+        print("\n=== PROCESSBENCH 风格测试 ===")
+        dummy_steps = ["Step1", "Step2", "Step3", "Step4"]
+        err_idx = self.prm_trainer.evaluate_processbench_style(dummy_steps)
+        if err_idx == -1:
+            print("所有步骤预测为正确。")
+        else:
+            print(f"PRM 预测第 {err_idx} 步是第一个错误的步骤。")
+
+def main():
+    # 加载 tokenizer 和 LLM responder
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-7B-Instruct")
+    llm_responder = LLM_Responser(api_key="your_api_key_here")
+
+    # 初始化 evaluator
+    evaluator = ReasoningEvaluator(llm_responder, tokenizer)
+
+    # 示例问题（可以读取文件或从命令行输入）
+    question = "一个苹果加一个苹果等于几？"
+    evaluator.run_on_problem(question)
+
+
+if __name__ == "__main__":
+    main()
 
