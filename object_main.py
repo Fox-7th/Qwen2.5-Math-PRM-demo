@@ -155,7 +155,7 @@ class MonteCarloEvaluator:
                     # group(1) 抽取 第1个括号中的匹配对象；假如是0，那就是整个匹配，包括字符串 
                     generated_ans_str = match.group(1).strip()
                     try:
-                        ans_val = float(gererated_ans_str)
+                        ans_val = float(generated_ans_str)
                         answer_lists.append(ans_val)
                     
                     except ValueError:
