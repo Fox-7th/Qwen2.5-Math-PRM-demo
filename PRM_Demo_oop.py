@@ -10,6 +10,8 @@ import random
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+
+
 # class that get a question and give an answer
 class LLM_Responser:
     def __init__(self, 
@@ -25,7 +27,6 @@ class LLM_Responser:
             base_url = base_url # website url and targeted model
         )
 
-    
     def __call__(self, prompt: str, temperature = 0.7) -> str:
         try:
             completion = self.client.chat.completions.create(
@@ -43,6 +44,8 @@ class LLM_Responser:
 
 llm = LLM_Responser(api_key = "xxx")
 response = llm("告诉我今天是几月几日？")
+
+
 
 # 根据问题，得到多个回答，每个回答切片，step step step，添加
 # 得到[[step11, step12, step13], [step21, step22, step23], ...
@@ -71,20 +74,19 @@ class Answer_Generator_Step_Splitter:
         for _ in range(self.num_solutions):
             # random choose temper
             temperature = random.choice(temperatures)
+
             # get response from LLM
             prompt = self.prompt_template.format(problem_text = question)
             solution = self.llm_responder(prompt, temperature = temperature)
-            
+
             # solution split into List[str]
             steps = self.split_step(solution)
+
             # List[List[str]], 8 solution(list of steps) in 1 list
             steps_solutions.append(steps) 
         return steps_solutions
         # [[step11, step12, step13], [step21, step22, step23], ...]
 
-
-    
-# splitter = Splitter()
 
 
 # get answer, split answer into steps, evaluate steps' consistency
@@ -102,7 +104,7 @@ class MonteCarloEvaluator:
         self.num_solutions = num_solutions
         self.prompt_template = continue_answer_prompt
         self.num_simulations = 8
- 
+
     def evaluate_consistency(self, result):
         res_arr = np.array(result) # list -> array
         mean_res = np.mean(res_arr)
@@ -147,7 +149,6 @@ class MonteCarloEvaluator:
                 # model续写，返回 回答
                 full_solution = self.llm_responder(current_prompt_text)   
 
-
                 # re.DOTALL: 它让 . 可以匹配 包括换行符在内的所有字符。 默认情况下 . 不会匹配 \n
                 match = re.search(r"最终答案是:\s*(.*)", full_solution, re.DOTALL)
                 # 有答案，就保存
@@ -157,7 +158,6 @@ class MonteCarloEvaluator:
                     try:
                         ans_val = float(generated_ans_str)
                         answer_lists.append(ans_val)
-                    
                     except ValueError:
                         # 无法转化为浮点数。
                         pass # ignore
@@ -177,7 +177,7 @@ class MonteCarloEvaluator:
         # 一个solution的step list —> consistency list eg.[0 0 0 0 1]
 
 
-    # gpt给的
+
     def label_problem(self, question: str, generator: Answer_Generator_Step_Splitter) -> List[Dict]:
         """
         对一个问题生成多个解法，每步打上 mc_label
@@ -210,8 +210,6 @@ class MonteCarloEvaluator:
 
         return labeled_solutions
 
-
-# taki in consistency_evaluater
 
 
 # 对一个问题 多个答案 每一步进行正确与错误的判断，正确给1，错误给0
@@ -276,7 +274,7 @@ class LLM_StepJudge:
         return judged_data
         # 注意这是新表，不是在原来的表上加的
 
-# gpt
+# g生成的
 class LabelMerger:
     def merge(self, mc_data: List[Dict], judge_data: List[Dict]) -> List[Dict]:
         merged_data = []
@@ -429,24 +427,24 @@ class ReasoningEvaluator:
         self.prm_trainer = PRMTrainer(tokenizer)
 
     def run_on_problem(self, question: str):
-        # Step 1: Generate and label with MC
+        # Generate and label with MC
         mc_data = self.mc_evaluator.label_problem(question, self.generator)
 
-        # Step 2: LLM judge
+        # LLM judge
         judge_data = self.llm_judge.label_problem(mc_data)
 
-        # Step 3: Merge
+        # Merge
         merged = self.merger.merge(mc_data, judge_data)
 
-        # Step 4: Consensus filter
+        # Consensus filter
         filtered = self.merger.consensus_filter(merged)
 
-        # Step 5: Train PRM
+        # Train PRM
         print("[INFO] Start training PRM...")
         dataset = self.prm_trainer.build_dataset(filtered)
         self.prm_trainer.train(dataset)
 
-        # Step 6: Evaluation
+        # Evaluation
         print("\n=== Best-of-N Evaluation ===")
         self.prm_trainer.evaluate_best_of_n(question, self.generator)
 

@@ -12,7 +12,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 
-
 # API adoption, input prompt and get answer in steps
 def get_message(prompt, temperature):
     try:
@@ -68,7 +67,6 @@ Each step, check 8 times whether it can leads to right answer
 Ff after one step, model has a large chance to finally lead to right answer.
     Then this step has a larg chance to be right and effiecient(leads to right answer)
 """
-
 def evaluate_consistency(result):
     res_arr = np.array(result) # list -> array
     mean_res = np.mean(res_arr)
@@ -145,7 +143,6 @@ def mock_mc_estimation_constrained(question,
 
 
     
-
 def mc_labeling_for_problem(problem_text) -> List[Dict]:
     """
     [
@@ -192,11 +189,7 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
     return result
     
 
-
-
-
 #####################LLM judges each step alone#######################
-
 def mock_llm_judge(question: str, step_text: str) -> int:
     """
     llm as a judge
@@ -210,7 +203,6 @@ def mock_llm_judge(question: str, step_text: str) -> int:
 
 # 有点怪，对solutioin中 每一个step 单独进行 判断是否合理，
 # 没有前边步骤，没有后边步骤，只对 中间 一个孤零零的步骤 进行判断
-
 def llm_juedge_labeling(question_data: List[Dict]):
     """
     [
@@ -293,8 +285,6 @@ def consensus_filtering(data: List[Dict]) -> List[Dict]:
 
 
 
-
-
 class PRMDataset(Dataset):
     """
         所有solution中的所有step都放在了一起，平面化了
@@ -324,6 +314,7 @@ class PRMDataset(Dataset):
     def __getitem__(self, idx):
         emb, label = self.samples[idx]
         return emb, label
+
 
 
 class SimplePRM(nn.Module):
@@ -475,9 +466,6 @@ def main_demo():
 
 if __name__ == "__main__":
     main_demo()
-
-
-
 
 
 
