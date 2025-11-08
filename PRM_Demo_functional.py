@@ -62,8 +62,11 @@ def mock_policy_model_generate(problem_text,
 
 
 """
-“每一步都让模型蒙特卡洛式地自我验证 8 次，看它是否在该步之后仍能持续走向正确答案。”
+每一步都让模型蒙特卡洛式地自我验证 8 次，看它是否在该步之后仍能持续走向正确答案。”
 如果在某个推理步骤之后，模型多数时候都能生成正确的最终答案，则说明这个步骤是「潜在正确的」。
+Each step, check 8 times whether it can leads to right answer
+Ff after one step, model has a large chance to finally lead to right answer.
+    Then this step has a larg chance to be right and effiecient(leads to right answer)
 """
 
 def evaluate_consistency(result):
@@ -94,6 +97,8 @@ def mock_mc_estimation_constrained(question,
     for i, step in enumerate(solution_steps):
         # 每次都先给问题，然后给出之前生成的步骤，给1步，给2步。。这样给下去，直到给完 一个solution中的所有steps
         # 所以累积 给 已经生成的步数，然后继续生成答案。
+        # Cumulative step appended, generate answer
+        # 1st time, input: step1 xxxx; 2nd time, input: step1 xxxx, step2 kkkk; like it
         accumulated_steps += "f\n Step {i+1}: {step}"
         # 构建给不同步数的prompt
         current_prompt_text = continue_answer_prompt.format(
@@ -107,12 +112,15 @@ def mock_mc_estimation_constrained(question,
             
             # i=1就是给了1步step后，sim_num=1进行第1次仿真
             # model续写，返回 回答
+            # continue to answer with given question and already processed steps
             full_solution = get_message(current_prompt_text)
             # re.DOTALL: 它让 . 可以匹配 包括换行符在内的所有字符。 默认情况下 . 不会匹配 \n
             match = re.search(r"最终答案是:\s*(.*)", full_solution, re.DOTALL)
             # 有答案，就保存
+            # if has answer, store it
             if match:
                 # group(1) 抽取 第1个括号中的匹配对象；假如是0，那就是整个匹配，包括字符串 
+                # store right one
                 gererated_ans_str = match.group(1).strip()
                 try:
                     ans_val = float(gererated_ans_str)
@@ -124,7 +132,7 @@ def mock_mc_estimation_constrained(question,
             else:
                 pass
         
-        # 每个 step，生成8次答案，收集，然后做投票
+        # 每个 step，生成8次答案，收集，然后做投票之类的选择
         if len(answer_lists) < 2:
             step_result = 0
         else:
@@ -156,12 +164,14 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
     
     """
     # 将存入的 一个 问题，解答6次，各次按照step split，得到List[List[str]]
+    # one question, gets 6 answer-paths, all split -> List[List[str]]
     solutions = mock_policy_model_generate(problem_text=problem_text,
                                            num_solutions=6)
     print(solutions)
 
     result = []
     # 一个solution，包含多个step的str的list。每次处理一个solution
+    # each time, one solution processed
     for solution in solutions:
         mc_labels = mock_mc_estimation_constrained(problem_text, solution)
         step_data = []
@@ -181,8 +191,6 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
         )
     return result
     
-
-
 
 
 
@@ -231,6 +239,7 @@ def llm_juedge_labeling(question_data: List[Dict]):
             step_info["judge_label"] = llm_juedge_res
             new_steps.append(step_info)
         # 直接进行整体覆盖
+        # store in a new one; rather than edit the original one 
         solution_dict["steps"] = new_steps
 
         # 不在原来的dict上修改，而是重新创造一个，修改，复制
@@ -243,6 +252,7 @@ def consensus_filtering(data: List[Dict]) -> List[Dict]:
 
     """
     返回数据格式：
+    format of returned data
     [
         {
             "problem": problem_text,
