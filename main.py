@@ -12,15 +12,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 
-# Prompt Templates with Embedded Question
-policy_model_generate_template = """
-你是一个推理模型，我给你一个Question。你根据题目:每个步骤前都要加 Step x，其中x为步骤编号
-要求：
-记得加step x
-每个推理步骤应当详细而且便于理解。
-
-问题如下: {Question}.
-"""
 
 # API adoption, input prompt and get answer in steps
 def get_message(prompt, temperature):
@@ -70,8 +61,6 @@ def mock_policy_model_generate(problem_text,
         solutions.append(steps) 
 
 
-
-
 """
 “每一步都让模型蒙特卡洛式地自我验证 8 次，看它是否在该步之后仍能持续走向正确答案。”
 如果在某个推理步骤之后，模型多数时候都能生成正确的最终答案，则说明这个步骤是「潜在正确的」。
@@ -86,11 +75,8 @@ def evaluate_consistency(result):
         return 1
     return 0
 
-
-
-
 def mock_mc_estimation_constrained(question,
-                                   solution_steps):
+                                   solution_steps, continue_answer_prompt):
     """
     once for one solution
     comulative steps as prompt, as model continue to generate for 8 times
@@ -103,16 +89,7 @@ def mock_mc_estimation_constrained(question,
     accumulated_steps = ""
     result = []
 
-    continue_answer_prompt = """
-        给你一个题目，你需要基于已有知识，作答：
-        格式是：下一步...下一步..., 最终答案是： 
-        下边的是题目，记得按照格式回答： 
-        {question} \n
-        已有的解题步骤：
-        {accumulated_steps} \n
-        你的解答：  
-    """
-
+    continue_answer_prompt = continue_answer_prompt
 
     for i, step in enumerate(solution_steps):
         # 每次都先给问题，然后给出之前生成的步骤，给1步，给2步。。这样给下去，直到给完 一个solution中的所有steps
@@ -173,10 +150,8 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
             ]
         },
 
-        
         .....
 
-        
     ]
     
     """
@@ -209,14 +184,7 @@ def mc_labeling_for_problem(problem_text) -> List[Dict]:
 
 
 
-eval_prompt = """
-你善于检查逻辑和运算，我讲给你一个题目和一个 解题步骤(也就是一连串步骤中的一个步骤)。你需要检查根据题目检查这个解题步骤。
-如果解题步骤可能有问题，就给出改正建议，并且返回0.如果没问题就返回1
-具体格式为："改正建议：...，正确性：..."。这里的正确性就是0或者1。
 
-问题是： {question}
-解题步骤是： {solution_steps}
-"""
 
 
 #####################LLM judges each step alone#######################
@@ -247,17 +215,13 @@ def llm_juedge_labeling(question_data: List[Dict]):
             ]
         },
 
-        
         .....
-
-    
+        
     ]
     
     """
 
-
     # 对于每个question 的solution 的dict
-
     output = []
     for solution_dict in question_data:
         new_steps = []
@@ -289,14 +253,11 @@ def consensus_filtering(data: List[Dict]) -> List[Dict]:
             ]
         },
 
-        
         .....
 
-    
     ]
     """
-
-
+    
     filtered_data = []
     for sol_dict in data:
         correct_steps = []
