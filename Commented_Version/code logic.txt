@@ -1,0 +1,45 @@
+prompt数据集：MATH
+2张 24G以上显卡
+带训练的Qwen2.5-Math-Instruct
+
+
+
+有一个问题quetion，llm回答得到已给response(按照格式step step写)
+response按照step划分成 列表
+
+给1步，让ai继续生成，直到最终答案。生成8次，记录答案，
+    进行consistency 计算，返回是否consistent标志（0或1）。记录。
+    解释：如果consistent的话，就说明这一步偏向正确
+
+给2步，    
+给3步
+。。给所有步
+直到记录所有的consistent标志
+也就是对于一个response，有n步，就有n个consistent标志
+
+
+每个response，每一步，分别输入llm，判断正确性合理性 与否。
+得到n个llm_judge标志
+
+2类标志，进行 and操作，得到final标志
+
+
+训练模型一个PRM模型，此处用简单的二分
+输入是 每个step的 embed，输出是 final标志
+反向传播，训练模型
+
+模型训练好了。
+对于每个response，每一步 打一次分，各个步骤分聚合（比如说相乘）看做 句子的分
+
+
+
+
+
+
+
+
+
+
+
+
+
