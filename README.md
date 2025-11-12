@@ -1,6 +1,6 @@
 Qwen2.5-Math-PRM Core Process Demo
 
-**Cleaned Version**: cleaned code with no comments, small bugs fixed.
+**Cleaned Version**: cleaned code with no comments, small bugs fixed, no change to codes.
 
-**Learning Version**: with lots of personal comments, code not so tidy with small bugs, mainly for personal reading.
+**Learning Version**: with personal Chinese comments, mainly for personal reading.
 
